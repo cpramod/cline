@@ -27,6 +27,7 @@ import { SambanovaHandler } from "./providers/sambanova"
 import { CerebrasHandler } from "./providers/cerebras"
 import { SapAiCoreHandler } from "./providers/sapaicore"
 import { ClaudeCodeHandler } from "./providers/claude-code"
+import { getContextOptimizer, isContextOptimizationEnabled } from "../core/tools/contextOptimizationTool"
 
 export interface ApiHandler {
 	createMessage(systemPrompt: string, messages: Anthropic.Messages.MessageParam[]): ApiStream
@@ -38,63 +39,145 @@ export interface SingleCompletionHandler {
 	completePrompt(prompt: string): Promise<string>
 }
 
+// Context-optimized wrapper that intercepts and optimizes all API calls
+class OptimizedApiHandler implements ApiHandler {
+	private baseHandler: ApiHandler
+
+	constructor(baseHandler: ApiHandler) {
+		this.baseHandler = baseHandler
+	}
+
+	async *createMessage(systemPrompt: string, messages: Anthropic.Messages.MessageParam[]): ApiStream {
+		// Only optimize if context optimization is enabled
+		if (isContextOptimizationEnabled()) {
+			const contextOptimizer = getContextOptimizer()
+			if (contextOptimizer) {
+				try {
+					// For now, pass empty array for clineMessages since we don't have access to them here
+					// This still provides significant optimization benefits
+					const optimizedContext = await contextOptimizer.optimizeContext(systemPrompt, messages, [])
+
+					// Pass optimized context to the base handler
+					yield* this.baseHandler.createMessage(
+						optimizedContext.optimizedSystemPrompt,
+						optimizedContext.optimizedMessages,
+					)
+
+					// Log optimization results for debugging
+					console.log(
+						`[ContextOptimizer] Optimized context: ${optimizedContext.originalTokens} -> ${optimizedContext.optimizedTokens} tokens (${Math.round((1 - optimizedContext.compressionRatio) * 100)}% reduction)`,
+					)
+
+					return
+				} catch (error) {
+					console.warn("Context optimization failed, falling back to original context:", error)
+					// Fallback to original context if optimization fails
+				}
+			}
+		}
+
+		// Pass through original context when optimization is disabled or failed
+		yield* this.baseHandler.createMessage(systemPrompt, messages)
+	}
+
+	getModel(): { id: string; info: ModelInfo } {
+		return this.baseHandler.getModel()
+	}
+
+	getApiStreamUsage?(): Promise<ApiStreamUsageChunk | undefined> {
+		return this.baseHandler.getApiStreamUsage?.() ?? Promise.resolve(undefined)
+	}
+}
+
 function createHandlerForProvider(apiProvider: string | undefined, options: any): ApiHandler {
+	let baseHandler: ApiHandler
+
 	switch (apiProvider) {
 		case "anthropic":
-			return new AnthropicHandler(options)
+			baseHandler = new AnthropicHandler(options)
+			break
 		case "openrouter":
-			return new OpenRouterHandler(options)
+			baseHandler = new OpenRouterHandler(options)
+			break
 		case "bedrock":
-			return new AwsBedrockHandler(options)
+			baseHandler = new AwsBedrockHandler(options)
+			break
 		case "vertex":
-			return new VertexHandler(options)
+			baseHandler = new VertexHandler(options)
+			break
 		case "openai":
-			return new OpenAiHandler(options)
+			baseHandler = new OpenAiHandler(options)
+			break
 		case "ollama":
-			return new OllamaHandler(options)
+			baseHandler = new OllamaHandler(options)
+			break
 		case "lmstudio":
-			return new LmStudioHandler(options)
+			baseHandler = new LmStudioHandler(options)
+			break
 		case "gemini":
-			return new GeminiHandler(options)
+			baseHandler = new GeminiHandler(options)
+			break
 		case "openai-native":
-			return new OpenAiNativeHandler(options)
+			baseHandler = new OpenAiNativeHandler(options)
+			break
 		case "deepseek":
-			return new DeepSeekHandler(options)
+			baseHandler = new DeepSeekHandler(options)
+			break
 		case "requesty":
-			return new RequestyHandler(options)
+			baseHandler = new RequestyHandler(options)
+			break
 		case "fireworks":
-			return new FireworksHandler(options)
+			baseHandler = new FireworksHandler(options)
+			break
 		case "together":
-			return new TogetherHandler(options)
+			baseHandler = new TogetherHandler(options)
+			break
 		case "qwen":
-			return new QwenHandler(options)
+			baseHandler = new QwenHandler(options)
+			break
 		case "doubao":
-			return new DoubaoHandler(options)
+			baseHandler = new DoubaoHandler(options)
+			break
 		case "mistral":
-			return new MistralHandler(options)
+			baseHandler = new MistralHandler(options)
+			break
 		case "vscode-lm":
-			return new VsCodeLmHandler(options)
+			baseHandler = new VsCodeLmHandler(options)
+			break
 		case "cline":
-			return new ClineHandler(options)
+			baseHandler = new ClineHandler(options)
+			break
 		case "litellm":
-			return new LiteLlmHandler(options)
+			baseHandler = new LiteLlmHandler(options)
+			break
 		case "nebius":
-			return new NebiusHandler(options)
+			baseHandler = new NebiusHandler(options)
+			break
 		case "asksage":
-			return new AskSageHandler(options)
+			baseHandler = new AskSageHandler(options)
+			break
 		case "xai":
-			return new XAIHandler(options)
+			baseHandler = new XAIHandler(options)
+			break
 		case "sambanova":
-			return new SambanovaHandler(options)
+			baseHandler = new SambanovaHandler(options)
+			break
 		case "cerebras":
-			return new CerebrasHandler(options)
+			baseHandler = new CerebrasHandler(options)
+			break
 		case "sapaicore":
-			return new SapAiCoreHandler(options)
+			baseHandler = new SapAiCoreHandler(options)
+			break
 		case "claude-code":
-			return new ClaudeCodeHandler(options)
+			baseHandler = new ClaudeCodeHandler(options)
+			break
 		default:
-			return new AnthropicHandler(options)
+			baseHandler = new AnthropicHandler(options)
+			break
 	}
+
+	// Wrap the base handler with context optimization
+	return new OptimizedApiHandler(baseHandler)
 }
 
 export function buildApiHandler(configuration: ApiConfiguration): ApiHandler {

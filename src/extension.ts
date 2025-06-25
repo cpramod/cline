@@ -35,6 +35,7 @@ import { vscodeHostBridgeClient } from "@/hosts/vscode/client/host-grpc-client"
 import { VscodeWebviewProvider } from "./core/webview/VscodeWebviewProvider"
 import { ExtensionContext } from "vscode"
 import { CodeIndexingService } from "./services/tree-sitter/cache/CodeIndexingService"
+import { initializeContextOptimization } from "./core/tools/contextOptimizationTool"
 
 /*
 Built using https://github.com/microsoft/vscode-webview-ui-toolkit
@@ -78,6 +79,14 @@ export async function activate(context: vscode.ExtensionContext) {
 		Logger.log("Code indexing service initialized")
 	} catch (error) {
 		Logger.log(`Failed to initialize code indexing service: ${error}`)
+	}
+
+	// Initialize context optimization for automatic API speed improvements
+	try {
+		await initializeContextOptimization(context)
+		Logger.log("Context optimization initialized and auto-enabled")
+	} catch (error) {
+		Logger.log(`Failed to initialize context optimization: ${error}`)
 	}
 
 	// Version checking for autoupdate notification
