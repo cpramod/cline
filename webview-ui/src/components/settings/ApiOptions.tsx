@@ -1576,7 +1576,7 @@ const ApiOptions = ({
 			{selectedProvider === "ollama" && showModelOptions && (
 				<>
 					<VSCodeTextField
-						value={apiConfiguration?.requestTimeoutMs ? apiConfiguration.requestTimeoutMs.toString() : "30000"}
+						value={apiConfiguration?.requestTimeoutMs ? apiConfiguration.requestTimeoutMs.toString() : "15000"}
 						style={{ width: "100%" }}
 						onInput={(e: any) => {
 							const value = e.target.value
@@ -1589,7 +1589,7 @@ const ApiOptions = ({
 								})
 							}
 						}}
-						placeholder="Default: 30000 (30 seconds)">
+						placeholder="Default: 15000 (15 seconds)">
 						<span style={{ fontWeight: 500 }}>Request Timeout (ms)</span>
 					</VSCodeTextField>
 					<p style={{ fontSize: "12px", marginTop: 3, color: "var(--vscode-descriptionForeground)" }}>

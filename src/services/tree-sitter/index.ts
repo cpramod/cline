@@ -4,11 +4,12 @@ import { listFiles } from "@services/glob/list-files"
 import { LanguageParser, loadRequiredLanguageParsers } from "./languageParser"
 import { fileExistsAtPath } from "@utils/fs"
 import { ClineIgnoreController } from "@core/ignore/ClineIgnoreController"
-
-// TODO: implement caching behavior to avoid having to keep analyzing project for new tasks.
+import { CodeIndexingService } from "./cache/CodeIndexingService"
+import * as vscode from "vscode"
 export async function parseSourceCodeForDefinitionsTopLevel(
 	dirPath: string,
 	clineIgnoreController?: ClineIgnoreController,
+	context?: vscode.ExtensionContext,
 ): Promise<string> {
 	// check if the path exists
 	const dirExists = await fileExistsAtPath(path.resolve(dirPath))
@@ -26,6 +27,13 @@ export async function parseSourceCodeForDefinitionsTopLevel(
 
 	const languageParsers = await loadRequiredLanguageParsers(filesToParse)
 
+	// Initialize code indexing service if context provided
+	let indexingService: CodeIndexingService | null = null
+	if (context) {
+		indexingService = CodeIndexingService.getInstance(context)
+		await indexingService.initialize()
+	}
+
 	// Parse specific files we have language parsers for
 	// const filesWithoutDefinitions: string[] = []
 
@@ -33,13 +41,22 @@ export async function parseSourceCodeForDefinitionsTopLevel(
 	const allowedFilesToParse = clineIgnoreController ? clineIgnoreController.filterPaths(filesToParse) : filesToParse
 
 	for (const filePath of allowedFilesToParse) {
-		const definitions = await parseFile(filePath, languageParsers, clineIgnoreController)
+		const definitions = await parseFile(filePath, languageParsers, clineIgnoreController, indexingService)
 		if (definitions) {
 			result += `${path.relative(dirPath, filePath).toPosix()}\n${definitions}\n`
 		}
 		// else {
 		// 	filesWithoutDefinitions.push(file)
 		// }
+	}
+
+	// Save cache after processing all files
+	if (indexingService) {
+		await indexingService.saveCache()
+		const stats = indexingService.getStats()
+		console.log(
+			`[TreeSitter] Parsing completed. Cache stats: ${stats.hitRate} hit rate, ${stats.totalDefinitions} total definitions`,
+		)
 	}
 
 	// List remaining files' paths
@@ -112,10 +129,20 @@ async function parseFile(
 	filePath: string,
 	languageParsers: LanguageParser,
 	clineIgnoreController?: ClineIgnoreController,
+	indexingService?: CodeIndexingService | null,
 ): Promise<string | null> {
 	if (clineIgnoreController && !clineIgnoreController.validateAccess(filePath)) {
 		return null
 	}
+
+	// Check cache first if indexing service is available
+	if (indexingService) {
+		const cachedDefinitions = await indexingService.getCachedDefinitions(filePath)
+		if (cachedDefinitions !== null) {
+			return cachedDefinitions
+		}
+	}
+
 	const fileContent = await fs.readFile(filePath, "utf8")
 	const ext = path.extname(filePath).toLowerCase().slice(1)
 
@@ -174,7 +201,14 @@ async function parseFile(
 	}
 
 	if (formattedOutput.length > 0) {
-		return `|----\n${formattedOutput}|----\n`
+		const result = `|----\n${formattedOutput}|----\n`
+
+		// Cache the result if indexing service is available
+		if (indexingService) {
+			await indexingService.cacheDefinitions(filePath, result)
+		}
+
+		return result
 	}
 	return null
 }

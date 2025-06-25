@@ -951,7 +951,11 @@ export class ToolExecutor {
 						this.taskState.consecutiveMistakeCount = 0
 
 						const absolutePath = path.resolve(this.cwd, relDirPath)
-						const result = await parseSourceCodeForDefinitionsTopLevel(absolutePath, this.clineIgnoreController)
+						const result = await parseSourceCodeForDefinitionsTopLevel(
+							absolutePath,
+							this.clineIgnoreController,
+							this.context,
+						)
 
 						const completeMessage = JSON.stringify({
 							...sharedMessageProps,

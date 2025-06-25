@@ -34,6 +34,7 @@ import * as hostProviders from "@hosts/host-providers"
 import { vscodeHostBridgeClient } from "@/hosts/vscode/client/host-grpc-client"
 import { VscodeWebviewProvider } from "./core/webview/VscodeWebviewProvider"
 import { ExtensionContext } from "vscode"
+import { CodeIndexingService } from "./services/tree-sitter/cache/CodeIndexingService"
 
 /*
 Built using https://github.com/microsoft/vscode-webview-ui-toolkit
@@ -69,6 +70,15 @@ export async function activate(context: vscode.ExtensionContext) {
 
 	// Clean up orphaned file context warnings (startup cleanup)
 	await FileContextTracker.cleanupOrphanedWarnings(context)
+
+	// Initialize code indexing service for faster response times
+	try {
+		const codeIndexingService = CodeIndexingService.getInstance(context)
+		await codeIndexingService.initialize()
+		Logger.log("Code indexing service initialized")
+	} catch (error) {
+		Logger.log(`Failed to initialize code indexing service: ${error}`)
+	}
 
 	// Version checking for autoupdate notification
 	const currentVersion = context.extension.packageJSON.version
@@ -684,6 +694,15 @@ const DEV_WORKSPACE_FOLDER = process.env.DEV_WORKSPACE_FOLDER
 export async function deactivate() {
 	// Dispose all webview instances
 	await WebviewProvider.disposeAllInstances()
+
+	// Dispose code indexing service
+	try {
+		const codeIndexingService = CodeIndexingService.getInstance(null as any) // Get existing instance
+		codeIndexingService.dispose()
+		Logger.log("Code indexing service disposed")
+	} catch (error) {
+		Logger.log(`Failed to dispose code indexing service: ${error}`)
+	}
 
 	await telemetryService.sendCollectedEvents()
 
